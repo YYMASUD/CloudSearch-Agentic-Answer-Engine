@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { CitationItem, SourceCard } from "@/lib/types";
+import MorphicCard from "@/components/GenerativeUI/MorphicCard";
+
 
 interface CitationProps {
   number: number;
@@ -127,24 +129,49 @@ interface AnswerRendererProps {
   sources: SourceCard[];
 }
 
-/** Splits answer text into segments and renders [N] as Citation components. */
+/** Splits answer text into segments and renders [N] as Citation components, code blocks as MorphicCards. */
 function AnswerRenderer({ text, isStreaming, citations, sources }: AnswerRendererProps) {
-  // Split on citation markers [N]
-  const parts = text.split(/(\[\d+\])/g);
+  // Split on fenced code blocks first: ```lang\ncode\n```
+  const segments = text.split(/(```[\s\S]*?```)/g);
 
   return (
-    <p>
-      {parts.map((part, i) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const num = parseInt(match[1], 10);
+    <>
+      {segments.map((segment, segIdx) => {
+        // Detect fenced code blocks
+        const codeMatch = segment.match(/^```(\w*)\n?([\s\S]*?)```$/);
+        if (codeMatch) {
+          const lang = codeMatch[1] || "code";
+          const code = codeMatch[2].trim();
           return (
-            <Citation key={i} number={num} citations={citations} sources={sources} />
+            <MorphicCard
+              key={`morphic-${segIdx}`}
+              type="code"
+              title="Code Artifact"
+              content={code}
+              metadata={{ language: lang }}
+            />
           );
         }
-        return <span key={i}>{part}</span>;
+
+        // For non-code segments, parse citation markers [N]
+        const parts = segment.split(/(\[\d+\])/g);
+        return (
+          <p key={`seg-${segIdx}`} style={{ margin: 0 }}>
+            {parts.map((part, i) => {
+              const match = part.match(/^\[(\d+)\]$/);
+              if (match) {
+                const num = parseInt(match[1], 10);
+                return (
+                  <Citation key={`${segIdx}-${i}`} number={num} citations={citations} sources={sources} />
+                );
+              }
+              return <span key={`${segIdx}-${i}`}>{part}</span>;
+            })}
+          </p>
+        );
       })}
       {isStreaming && <span className="cs-streaming-cursor" aria-hidden="true" />}
-    </p>
+    </>
   );
 }
+

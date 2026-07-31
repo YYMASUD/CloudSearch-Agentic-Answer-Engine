@@ -64,6 +64,26 @@ async def init_providers() -> None:
         except Exception as exc:
             logger.warning("MetasearchProvider not available: %s", exc)
 
+    if os.getenv("ENABLE_CODE_PROVIDER", "false").lower() == "true" or os.getenv("GITHUB_TOKEN"):
+        try:
+            from services.providers.github_provider import GitHubProvider
+            github = GitHubProvider()
+            await github.initialize()
+            _provider_registry[SourceType.CODE] = github
+            logger.info("GitHubProvider (CODE) initialized.")
+        except Exception as exc:
+            logger.warning("GitHubProvider not available: %s", exc)
+
+    if os.getenv("ENABLE_PRIVATE_PROVIDER", "false").lower() == "true" or os.getenv("ONYX_API_KEY"):
+        try:
+            from services.providers.onyx_provider import OnyxProvider
+            onyx = OnyxProvider()
+            await onyx.initialize()
+            _provider_registry[SourceType.PRIVATE] = onyx
+            logger.info("OnyxProvider (PRIVATE) initialized.")
+        except Exception as exc:
+            logger.warning("OnyxProvider not available: %s", exc)
+
     logger.info(
         "Provider registry: %s",
         [st.value for st in _provider_registry],
