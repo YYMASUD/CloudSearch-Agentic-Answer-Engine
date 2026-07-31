@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 
 from cloudsearch_shared.document import NormalizedDocument, SourceType
+from cloudsearch_shared.resilience import CircuitBreaker
 from services.providers.base import SearchOptions, SearchProvider
 from .router import SourceRoute
 
@@ -22,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 # Per-provider timeout — providers exceeding this are cancelled gracefully
 PROVIDER_TIMEOUT_S: float = float(os.getenv("PROVIDER_TIMEOUT_S", "8.0"))
+
+# Per-provider circuit breakers (module-level, persist across requests)
+_circuit_breakers: dict[str, CircuitBreaker] = {}
+
+
+def _get_circuit_breaker(provider_name: str) -> CircuitBreaker:
+    if provider_name not in _circuit_breakers:
+        _circuit_breakers[provider_name] = CircuitBreaker(name=provider_name)
+    return _circuit_breakers[provider_name]
 
 
 @dataclass
@@ -41,9 +51,22 @@ async def _collect_provider(
     weight: float,
 ) -> ProviderResult:
     """
-    Collect all results from a single provider with timeout protection.
-    Applies the source-weight bias to scores before returning.
+    Collect all results from a single provider with timeout protection
+    and circuit breaker integration.
     """
+    cb = _get_circuit_breaker(provider.name)
+
+    # Circuit breaker: fail-fast if circuit is open
+    if not cb.allow_request():
+        logger.info("Provider %r circuit OPEN — skipping.", provider.name)
+        return ProviderResult(
+            source_type=provider.source_type,
+            documents=[],
+            elapsed_ms=0,
+            timed_out=False,
+            error=f"Circuit breaker OPEN for {provider.name}",
+        )
+
     start = time.monotonic()
     docs: list[NormalizedDocument] = []
     timed_out = False
@@ -55,8 +78,10 @@ async def _collect_provider(
                 doc.score = min(1.0, doc.score * weight)
                 docs.append(doc)
         await asyncio.wait_for(_run(), timeout=PROVIDER_TIMEOUT_S)
+        cb.record_success()
     except asyncio.TimeoutError:
         timed_out = True
+        cb.record_failure()
         logger.warning(
             "Provider %r timed out after %.1fs for query %r",
             provider.name,
@@ -65,6 +90,7 @@ async def _collect_provider(
         )
     except Exception as exc:
         error = str(exc)
+        cb.record_failure()
         logger.exception("Provider %r raised: %s", provider.name, exc)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)

@@ -20,6 +20,8 @@ from services.orchestrator.agent.router import SourceRouter
 from services.orchestrator.fusion.core import FusionCore
 from services.rag.citation_grounder import CitationGrounder
 from services.rag.reranker import Reranker
+from gateway.cache import RedisCache
+from gateway.session_store import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +33,22 @@ _source_router: SourceRouter | None = None
 _fusion_core: FusionCore | None = None
 _reranker: Reranker | None = None
 _grounder: CitationGrounder | None = None
+_cache: RedisCache | None = None
+_session_store: SessionStore | None = None
 
 
 async def init_providers() -> None:
     """Called once at startup — initialize all providers."""
     global _provider_registry, _model_router, _planner, _source_router
-    global _fusion_core, _reranker, _grounder
+    global _fusion_core, _reranker, _grounder, _cache, _session_store
+
+    # ── Redis cache ───────────────────────────────────────────────────
+    _cache = RedisCache()
+    await _cache.initialize()
+
+    # ── Session store ──────────────────────────────────────────────────
+    _session_store = SessionStore()
+    await _session_store.initialize()
 
     # ── Retrieval providers ────────────────────────────────────────────
     meili = MeilisearchProvider()
@@ -107,6 +119,10 @@ async def close_providers() -> None:
             await provider.close()
         except Exception as exc:
             logger.warning("Error closing provider %r: %s", provider.name, exc)
+    if _cache:
+        await _cache.close()
+    if _session_store:
+        await _session_store.close()
 
 
 # ─── FastAPI dependency functions ─────────────────────────────────────────────
@@ -143,3 +159,18 @@ def get_reranker() -> Reranker:
 def get_grounder() -> CitationGrounder:
     assert _grounder is not None, "CitationGrounder not initialized"
     return _grounder
+
+
+def _get_cache() -> RedisCache | None:
+    """Internal helper for middleware access without assert."""
+    return _cache
+
+
+def get_cache() -> RedisCache:
+    assert _cache is not None, "RedisCache not initialized"
+    return _cache
+
+
+def get_session_store() -> SessionStore:
+    assert _session_store is not None, "SessionStore not initialized"
+    return _session_store

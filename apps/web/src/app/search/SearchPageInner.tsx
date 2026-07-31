@@ -6,6 +6,7 @@ import Link from "next/link";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import AnswerBox from "@/components/AnswerBox/AnswerBox";
 import SourcesGrid from "@/components/SourceCard/SourceCard";
+import ErrorBoundary from "@/components/ErrorBoundary/ErrorBoundary";
 import { useSearchStore } from "@/lib/search-store";
 import type { SearchMode } from "@/lib/types";
 
@@ -127,17 +128,34 @@ export default function SearchPageInner() {
                 <strong>Search error</strong>
               </div>
               <p style={{ marginTop: "0.5rem", color: "var(--cs-text-secondary)" }}>{error}</p>
+              <button
+                onClick={() => executeSearch(query, mode)}
+                style={{
+                  marginTop: "0.75rem",
+                  padding: "0.4rem 1rem",
+                  borderRadius: "var(--cs-radius-sm)",
+                  border: "1px solid var(--cs-border-hover)",
+                  background: "var(--cs-surface-raised)",
+                  color: "var(--cs-text-primary)",
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                }}
+              >
+                ↻ Retry
+              </button>
             </div>
           )}
         </div>
 
         {/* Right sidebar: sources */}
         <aside className="cs-results-sidebar" aria-label="Sources">
-          <SourcesGrid
-            sources={sources}
-            isLoading={isSearching}
-            skeletonCount={5}
-          />
+          <ErrorBoundary>
+            <SourcesGrid
+              sources={sources}
+              isLoading={isSearching}
+              skeletonCount={5}
+            />
+          </ErrorBoundary>
         </aside>
       </div>
     </>

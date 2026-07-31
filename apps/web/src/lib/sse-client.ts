@@ -34,15 +34,22 @@ export function startSearchStream(
   });
 
   const url = `/api/search/stream?${params}`;
-  const es = new EventSource(url);
+  let es: EventSource | null = null;
   let closed = false;
+  let retryCount = 0;
+  const maxRetries = 3;
+  const seenChunkIndexes = new Set<number>();
 
   const safeClose = () => {
     if (!closed) {
       closed = true;
-      es.close();
+      es?.close();
     }
   };
+
+  const connect = () => {
+    if (closed) return;
+    es = new EventSource(url);
 
   es.addEventListener("source_card", (e: MessageEvent) => {
     try {
@@ -53,7 +60,11 @@ export function startSearchStream(
   es.addEventListener("answer_chunk", (e: MessageEvent) => {
     try {
       const { chunk, chunk_index } = JSON.parse(e.data) as { chunk: string; chunk_index: number };
-      handlers.onAnswerChunk(chunk, chunk_index);
+      // Deduplicate chunks on reconnect
+      if (!seenChunkIndexes.has(chunk_index)) {
+        seenChunkIndexes.add(chunk_index);
+        handlers.onAnswerChunk(chunk, chunk_index);
+      }
     } catch {/* ignore */}
   });
 
@@ -83,13 +94,23 @@ export function startSearchStream(
     safeClose();
   });
 
-  // Native EventSource connection error (network failure, CORS, etc.)
+  // Native EventSource connection error — auto-reconnect with backoff
   es.onerror = () => {
-    if (!closed) {
-      handlers.onError("Stream connection failed. Is the gateway running?", false);
+    if (closed) return;
+    es?.close();
+    if (retryCount < maxRetries) {
+      retryCount++;
+      const delay = Math.min(500 * Math.pow(2, retryCount - 1), 8000);
+      console.warn(`[SSE] Connection lost, retrying (${retryCount}/${maxRetries}) in ${delay}ms...`);
+      setTimeout(connect, delay);
+    } else {
+      handlers.onError("Stream connection failed after retries. Is the gateway running?", false);
       safeClose();
     }
   };
+  }; // end connect()
+
+  connect();
 
   // Return cleanup
   return safeClose;

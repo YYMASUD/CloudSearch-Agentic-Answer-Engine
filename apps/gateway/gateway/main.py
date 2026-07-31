@@ -22,16 +22,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from cloudsearch_shared.telemetry import setup_telemetry
+from cloudsearch_shared.logging_config import configure_logging
 
 # Import routers
 from gateway.routers.health import router as health_router
 from gateway.routers.search import router as search_router
 from gateway.routers.graphql import graphql_app
+from gateway.middleware import RateLimitMiddleware, APIKeyAuthMiddleware
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
-)
+configure_logging(service_name="cloudsearch-gateway")
 logger = logging.getLogger(__name__)
 
 
@@ -66,7 +65,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ─── CORS ─────────────────────────────────────────────────────────────────────
+# ─── Middleware ────────────────────────────────────────────────────────────────────────
+# Note: Starlette applies middleware in reverse order of addition
+app.add_middleware(APIKeyAuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),

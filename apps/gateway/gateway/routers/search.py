@@ -34,6 +34,8 @@ from gateway.dependencies import (
     get_provider_registry,
     get_reranker,
     get_source_router,
+    get_cache,
+    get_session_store,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,6 +125,19 @@ async def search(
     Full synchronous search — returns complete answer with citations.
     Suitable for programmatic clients. For the UI, use /search/stream.
     """
+    import time as _time
+    t_start = _time.monotonic()
+
+    # ── Cache check ────────────────────────────────────────────────────────
+    try:
+        cache = get_cache()
+        cached = await cache.get(body.query, body.mode)
+        if cached:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=cached, headers={"X-Cache": "HIT"})
+    except Exception:
+        pass  # Cache unavailable — continue to pipeline
+
     plan, fusion_result, reranked = await _run_pipeline(
         body, planner, source_router, providers, fusion_core, reranker
     )
@@ -148,7 +163,7 @@ async def search(
         for i, doc in enumerate(reranked)
     ]
 
-    return SearchResponse(
+    response = SearchResponse(
         session_id=body.session_id,
         query=body.query,
         answer=grounding.answer_with_citations,
@@ -158,6 +173,34 @@ async def search(
                       "final_count": fusion_result.stats.final_count,
                       "elapsed_ms": fusion_result.stats.elapsed_ms},
     )
+
+    duration_ms = int((_time.monotonic() - t_start) * 1000)
+    response_dict = response.model_dump()
+
+    # ── Cache set (fire-and-forget) ───────────────────────────────────────────
+    try:
+        await get_cache().set(body.query, body.mode, response_dict)
+    except Exception:
+        pass
+
+    # ── Session persistence (fire-and-forget) ─────────────────────────────
+    try:
+        await get_session_store().save_session(
+            session_id=body.session_id,
+            query=body.query,
+            rewritten_query=plan.rewritten_query,
+            intent=plan.intent,
+            sources_used=[s.source_type for s in sources],
+            answer_text=full_answer,
+            citations=grounding.to_dict()["citations"],
+            duration_ms=duration_ms,
+            tenant_id=body.tenant_id,
+        )
+    except Exception:
+        pass
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=response_dict, headers={"X-Cache": "MISS"})
 
 
 @router.get("/search/stream", summary="SSE streaming search")
