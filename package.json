@@ -1,0 +1,33 @@
+{
+  "name": "cloudsearch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic answer engine — Perplexity-style multi-source search platform",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "clean": "turbo run clean && rimraf node_modules",
+    "generate-types": "turbo run generate-types",
+    "docker:up": "docker compose --profile full up -d",
+    "docker:up:lite": "docker compose --profile lite up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "infra:init": "python infra/meilisearch/init-index.py"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "rimraf": "^5.0.10",
+    "@playwright/test": "^1.49.0",
+    "prettier": "^3.4.2",
+    "eslint": "^9.17.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
